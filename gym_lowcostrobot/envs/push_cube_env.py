@@ -6,7 +6,7 @@ import mujoco.viewer
 import numpy as np
 from gymnasium import Env, spaces
 
-from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME
+from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, EE_LINK_NAME, koch_default_qpos
 
 
 class PushCubeEnv(Env):
@@ -129,6 +129,9 @@ class PushCubeEnv(Env):
 
         self.control_decimation = 4 # number of simulation steps per control step
 
+        self.cube_pos_id = self.model.body("cube").id
+        self.ee_id = self.model.body(BASE_LINK_NAME).id
+
     def inverse_kinematics(self, ee_target_pos, step=0.2, joint_name="link_6", nb_dof=6, regularization=1e-6):
         """
         Computes the inverse kinematics for a robotic arm to reach the target end effector position.
@@ -148,8 +151,7 @@ class PushCubeEnv(Env):
 
         # Get the current end effector position
         # ee_pos = self.d.geom_xpos[joint_id]
-        ee_id = self.model.body(joint_name).id
-        ee_pos = self.data.geom_xpos[ee_id]
+        ee_pos = self.data.geom_xpos[self.ee_id]
 
         # Compute the Jacobian
         jac = np.zeros((3, self.model.nv))
@@ -191,8 +193,7 @@ class PushCubeEnv(Env):
             ee_action, gripper_action = action[:3], action[-1]
 
             # Update the robot position based on the action
-            ee_id = self.model.body("link_6").id
-            ee_target_pos = self.data.xpos[ee_id] + ee_action
+            ee_target_pos = self.data.xpos[self.ee_id] + ee_action
 
             # Use inverse kinematics to get the joint action wrt the end effector current position and displacement
             target_qpos = self.inverse_kinematics(ee_target_pos=ee_target_pos)
@@ -238,7 +239,7 @@ class PushCubeEnv(Env):
         # Reset the robot to the initial position and sample the cube position
         cube_pos = self.np_random.uniform(self.cube_low, self.cube_high)
         cube_rot = np.array([1.0, 0.0, 0.0, 0.0])
-        robot_qpos = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        robot_qpos = np.array(koch_default_qpos)
         self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof] = robot_qpos
         self.data.qpos[self.cube_dof_id:self.cube_dof_id+7] = np.concatenate([cube_pos, cube_rot])
 

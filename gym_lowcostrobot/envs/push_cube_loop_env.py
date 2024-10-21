@@ -6,7 +6,7 @@ import mujoco.viewer
 import numpy as np
 from gymnasium import Env, spaces
 
-from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME
+from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, EE_LINK_NAME, koch_default_qpos
 
 
 class PushCubeLoopEnv(Env):
@@ -141,8 +141,11 @@ class PushCubeLoopEnv(Env):
         self._step = 0
         # indicators for the reward
 
+        self.cube_pos_id = self.model.body("cube").id
+        self.ee_id = self.model.body(BASE_LINK_NAME).id
 
-    def inverse_kinematics(self, ee_target_pos, step=0.2, joint_name="moving_side", nb_dof=6, regularization=1e-6):
+
+    def inverse_kinematics(self, ee_target_pos, step=0.2, regularization=1e-6):
         """
         Computes the inverse kinematics for a robotic arm to reach the target end effector position.
 
@@ -155,14 +158,13 @@ class PushCubeLoopEnv(Env):
         """
         try:
             # Get the joint ID from the name
-            joint_id = self.model.body(joint_name).id
+            joint_id = self.model.body(EE_LINK_NAME).id
         except KeyError:
-            raise ValueError(f"Body name '{joint_name}' not found in the model.")
+            raise ValueError(f"Body name '{EE_LINK_NAME}' not found in the model.")
 
         # Get the current end effector position
         # ee_pos = self.d.geom_xpos[joint_id]
-        ee_id = self.model.body(joint_name).id
-        ee_pos = self.data.geom_xpos[ee_id]
+        ee_pos = self.data.geom_xpos[self.ee_id]
 
         # Compute the Jacobian
         jac = np.zeros((3, self.model.nv))
@@ -172,8 +174,8 @@ class PushCubeLoopEnv(Env):
         delta_pos = ee_target_pos - ee_pos
 
         # Compute the pseudoinverse of the Jacobian with regularization
-        jac_reg = jac[:, :nb_dof].T @ jac[:, :nb_dof] + regularization * np.eye(nb_dof)
-        jac_pinv = np.linalg.inv(jac_reg) @ jac[:, :nb_dof].T
+        jac_reg = jac[:, :self.nb_dof].T @ jac[:, :self.nb_dof] + regularization * np.eye(self.nb_dof)
+        jac_pinv = np.linalg.inv(jac_reg) @ jac[:, :self.nb_dof].T
 
         # Compute target joint velocities
         qdot = jac_pinv @ delta_pos
@@ -184,7 +186,7 @@ class PushCubeLoopEnv(Env):
             qdot /= qdot_norm
   
         # Read the current joint positions
-        qpos = self.data.qpos[self.arm_dof_id:self.arm_dof_id+nb_dof]
+        qpos = self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof]
 
         # Compute the new joint positions
         q_target_pos = qpos + qdot * step
@@ -204,8 +206,7 @@ class PushCubeLoopEnv(Env):
             ee_action, gripper_action = action[:3], action[-1]
 
             # Update the robot position based on the action
-            ee_id = self.model.body("moving_side").id
-            ee_target_pos = self.data.xpos[ee_id] + ee_action
+            ee_target_pos = self.data.xpos[self.ee_id] + ee_action
 
             # Use inverse kinematics to get the joint action wrt the end effector current position and displacement
             target_qpos = self.inverse_kinematics(ee_target_pos=ee_target_pos)
@@ -252,7 +253,7 @@ class PushCubeLoopEnv(Env):
                       + self.current_goal * self.goal_region_2_center[:2]
 
         cube_rot = np.array([1.0, 0.0, 0.0, 0.0])
-        robot_qpos = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        robot_qpos = np.array(koch_default_qpos)
         self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof] = robot_qpos
         self.data.qpos[self.cube_dof_id:self.cube_dof_id+7]=np.concatenate([cube_pos, cube_rot])
         

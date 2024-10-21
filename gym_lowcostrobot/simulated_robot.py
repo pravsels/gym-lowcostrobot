@@ -189,7 +189,7 @@ class SimulatedRobot:
         self,
         ee_target_pos,
         step=0.2,
-        joint_name="moving_side",
+        joint_name="link_6",
         nb_dof=6,
         regularization=1e-6,
         home_position=None,

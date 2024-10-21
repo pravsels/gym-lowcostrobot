@@ -27,7 +27,7 @@ def displace_object(data, m, object_id, viewer, square_size=0.2, invert_y=False,
 def do_simple_invk(robot_id="6dof", do_reset=False):
     if robot_id == "6dof":
         path_scene = "gym_lowcostrobot/assets/low_cost_robot_6dof/reach_cube.xml"
-        joint_name = "moving_side"
+        joint_name = "link_6"
         object_id = "cube"
         min_dist = 0.065
         max_dist = 0.35

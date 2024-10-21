@@ -6,7 +6,7 @@ import mujoco.viewer
 import numpy as np
 from gymnasium import Env, spaces
 
-from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME
+from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, koch_default_qpos
 
 
 class ReachCubeEnv(Env):
@@ -93,9 +93,9 @@ class ReachCubeEnv(Env):
             "arm_qvel": spaces.Box(low=-10.0, high=10.0, shape=(6,)),
         }
         if self.observation_mode in ["image", "both"]:
-            observation_subspaces["image_front"] = spaces.Box(0, 255, shape=(240, 320, 3), dtype=np.uint8)
-            observation_subspaces["image_top"] = spaces.Box(0, 255, shape=(240, 320, 3), dtype=np.uint8)
-            self.renderer = mujoco.Renderer(self.model)
+            observation_subspaces["image_front"] = spaces.Box(0, 255, shape=(120, 120, 3), dtype=np.uint8)
+            observation_subspaces["image_top"] = spaces.Box(0, 255, shape=(120, 120, 3), dtype=np.uint8)
+            self.renderer = mujoco.Renderer(self.model, width=120, height=120)
         if self.observation_mode in ["state", "both"]:
             observation_subspaces["cube_pos"] = spaces.Box(low=-10.0, high=10.0, shape=(3,))
         self.observation_space = gym.spaces.Dict(observation_subspaces)
@@ -124,6 +124,9 @@ class ReachCubeEnv(Env):
         # if the arm is not at address 0 then the cube will have 7 states in qpos and 6 in qvel
         if self.arm_dof_id != 0:
             self.arm_dof_id = self.arm_dof_vel_id + 1
+
+        self.cube_pos_id = self.model.body("cube").id
+        self.ee_id = self.model.body(BASE_LINK_NAME).id
 
     def inverse_kinematics(
         self,
@@ -157,8 +160,7 @@ class ReachCubeEnv(Env):
             raise ValueError(f"Body name '{joint_name}' not found in the model.")
 
         # Get the current end effector position
-        ee_id = self.model.body(joint_name).id
-        ee_pos = self.data.geom_xpos[ee_id]
+        ee_pos = self.data.geom_xpos[self.ee_id]
 
         # Compute the Jacobian
         jac = np.zeros((3, self.model.nv))
@@ -202,8 +204,7 @@ class ReachCubeEnv(Env):
             ee_action, gripper_action = action[:3], action[-1]
 
             # Update the robot position based on the action
-            ee_id = self.model.body("link_6").id
-            ee_target_pos = self.data.xpos[ee_id] + ee_action
+            ee_target_pos = self.data.xpos[self.ee_id] + ee_action
 
             # Use inverse kinematics to get the joint action wrt the end effector current position and displacement
             target_qpos = self.inverse_kinematics(ee_target_pos=ee_target_pos)
@@ -231,9 +232,11 @@ class ReachCubeEnv(Env):
             "arm_qpos": self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof].astype(np.float32),
             "arm_qvel": self.data.qvel[self.arm_dof_vel_id:self.arm_dof_vel_id+self.nb_dof].astype(np.float32),
         }
+        observation['agent_pose'] = observation['arm_qpos']
         if self.observation_mode in ["image", "both"]:
             self.renderer.update_scene(self.data, camera="camera_front")
             observation["image_front"] = self.renderer.render()
+            observation["pixels"] = observation["image_front"]
             self.renderer.update_scene(self.data, camera="camera_top")
             observation["image_top"] = self.renderer.render()
         if self.observation_mode in ["state", "both"]:
@@ -247,7 +250,7 @@ class ReachCubeEnv(Env):
         # Reset the robot to the initial position and sample the cube position
         cube_pos = self.np_random.uniform(self.cube_low, self.cube_high)
         cube_rot = np.array([1.0, 0.0, 0.0, 0.0])
-        robot_qpos = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        robot_qpos = np.array(koch_default_qpos)
         self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof] = robot_qpos
         self.data.qpos[self.cube_dof_id:self.cube_dof_id+7] = np.concatenate([cube_pos, cube_rot])
 
@@ -264,8 +267,8 @@ class ReachCubeEnv(Env):
         observation = self.get_observation()
 
         # Get the position of the cube and the distance between the end effector and the cube
-        cube_pos = self.data.xpos[2]
-        ee_pos = self.data.xpos[8]
+        cube_pos = self.data.xpos[self.cube_pos_id]
+        ee_pos = self.data.xpos[self.ee_id]
         ee_to_cube = np.linalg.norm(ee_pos - cube_pos)
 
         # Compute the reward

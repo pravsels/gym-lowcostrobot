@@ -26,7 +26,7 @@
 
 		<body name="cube" pos="0.06 0.135 0.017">
 			<freejoint name="cube"/>
-			<inertial pos="0 0 0" mass=".05" diaginertia="0.00001125 0.00001125 0.00001125"/>
+			<inertial pos="0 0 0" mass=".1" diaginertia="0.00001125 0.00001125 0.00001125"/>
 			<geom friction="1.5 1.5 1.5" condim="4" pos="0 0 0" size="0.015 0.015 0.015" type="box" name="cube" rgba="0.5 0 0 1" priority="1"/>
 		</body>
 
