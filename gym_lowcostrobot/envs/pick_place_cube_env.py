@@ -6,7 +6,7 @@ import mujoco.viewer
 import numpy as np
 from gymnasium import Env, spaces
 
-from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, koch_default_qpos
+from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, EE_LINK_NAME, koch_default_qpos
 
 
 class PickPlaceCubeEnv(Env):
@@ -130,7 +130,7 @@ class PickPlaceCubeEnv(Env):
         self.control_decimation = 4 # number of simulation steps per control step
 
         self.cube_pos_id = self.model.body("cube").id
-        self.ee_id = self.model.body(BASE_LINK_NAME).id
+        self.ee_id = self.model.body(EE_LINK_NAME).id
 
 
     def inverse_kinematics(self, ee_target_pos, step=0.2, joint_name="link_6", nb_dof=6, regularization=1e-6):

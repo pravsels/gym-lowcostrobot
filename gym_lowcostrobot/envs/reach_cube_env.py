@@ -6,7 +6,7 @@ import mujoco.viewer
 import numpy as np
 from gymnasium import Env, spaces
 
-from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, koch_default_qpos
+from gym_lowcostrobot import ASSETS_PATH, BASE_LINK_NAME, EE_LINK_NAME,  koch_default_qpos
 
 
 class ReachCubeEnv(Env):
@@ -74,7 +74,7 @@ class ReachCubeEnv(Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 200}
 
-    def __init__(self, observation_mode="image", action_mode="joint", render_mode=None):
+    def __init__(self, observation_mode="image", action_mode="joint", reward_type='dense', render_mode=None):
         # Load the MuJoCo model and data
         self.model = mujoco.MjModel.from_xml_path(os.path.join(ASSETS_PATH, "reach_cube.xml"), {})
         self.data = mujoco.MjData(self.model)
@@ -114,7 +114,7 @@ class ReachCubeEnv(Env):
 
         # Set additional utils
         self.threshold_height = 0.5
-        self.cube_low = np.array([-0.15, 0.10, 0.015])
+        self.cube_low = np.array([-0.15, 0.22, 0.015])
         self.cube_high = np.array([0.15, 0.25, 0.015])
 
         # get dof addresses
@@ -126,7 +126,9 @@ class ReachCubeEnv(Env):
             self.arm_dof_id = self.arm_dof_vel_id + 1
 
         self.cube_pos_id = self.model.body("cube").id
-        self.ee_id = self.model.body(BASE_LINK_NAME).id
+        self.ee_id = self.model.body(EE_LINK_NAME).id
+
+        self.reward_type = reward_type
 
     def inverse_kinematics(
         self,
@@ -232,11 +234,11 @@ class ReachCubeEnv(Env):
             "arm_qpos": self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof].astype(np.float32),
             "arm_qvel": self.data.qvel[self.arm_dof_vel_id:self.arm_dof_vel_id+self.nb_dof].astype(np.float32),
         }
-        observation['agent_pose'] = observation['arm_qpos']
+        #observation['agent_pose'] = np.concatenate((observation['arm_qpos'], observation['arm_qvel']))
         if self.observation_mode in ["image", "both"]:
             self.renderer.update_scene(self.data, camera="camera_front")
             observation["image_front"] = self.renderer.render()
-            observation["pixels"] = observation["image_front"]
+            #observation["pixels"] = observation["image_front"]
             self.renderer.update_scene(self.data, camera="camera_top")
             observation["image_top"] = self.renderer.render()
         if self.observation_mode in ["state", "both"]:
@@ -265,14 +267,8 @@ class ReachCubeEnv(Env):
 
         # Get the new observation
         observation = self.get_observation()
+        reward = self.compute_dense_reward() if self.reward_type == 'dense' else self.compute_sparse_reward()
 
-        # Get the position of the cube and the distance between the end effector and the cube
-        cube_pos = self.data.xpos[self.cube_pos_id]
-        ee_pos = self.data.xpos[self.ee_id]
-        ee_to_cube = np.linalg.norm(ee_pos - cube_pos)
-
-        # Compute the reward
-        reward = -ee_to_cube
         return observation, reward, False, False, {}
 
     def render(self):
@@ -289,3 +285,29 @@ class ReachCubeEnv(Env):
             self.renderer.close()
         if self.render_mode == "rgb_array":
             self.rgb_array_renderer.close()
+
+    def compute_dense_reward(self):
+        # Get the position of the cube and the distance between the end effector and the cube
+        cube_pos = self.data.xpos[self.cube_pos_id][:2]
+        ee_pos = self.data.xpos[self.ee_id][:2]
+        ee_to_cube = np.linalg.norm(ee_pos - cube_pos)
+
+        exp_dist = np.exp(-ee_to_cube/0.1)
+        
+        reward = exp_dist
+        if exp_dist > 0.6:
+            reward = 1.0
+        elif exp_dist < 0.15:
+            reward = 0.0
+
+        # Return the reward
+        return reward
+
+    def compute_sparse_reward(self):
+        cube_pos = self.data.xpos[self.cube_pos_id]
+        ee_pos = self.data.xpos[self.ee_id]
+        ee_to_cube = np.linalg.norm(ee_pos - cube_pos)
+
+        cube_is_reached = 1.0 if ee_to_cube < 0.1 else 0.0
+        return cube_is_reached
+
