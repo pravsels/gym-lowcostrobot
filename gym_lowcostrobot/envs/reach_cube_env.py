@@ -74,7 +74,7 @@ class ReachCubeEnv(Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 200}
 
-    def __init__(self, observation_mode="image", action_mode="joint", reward_type='dense', render_mode=None):
+    def __init__(self, observation_mode="image", action_mode="joint", reward_type='dense', actions_in_degrees=False, render_mode=None):
         # Load the MuJoCo model and data
         self.model = mujoco.MjModel.from_xml_path(os.path.join(ASSETS_PATH, "reach_cube.xml"), {})
         self.data = mujoco.MjData(self.model)
@@ -129,6 +129,7 @@ class ReachCubeEnv(Env):
         self.ee_id = self.model.body(EE_LINK_NAME).id
 
         self.reward_type = reward_type
+        self.actions_in_degress = actions_in_degrees
 
     def inverse_kinematics(
         self,
@@ -214,6 +215,7 @@ class ReachCubeEnv(Env):
         elif self.action_mode == "joint":
             target_low = np.array([-3.14159, -1.5708, -1.48353, -1.91986, -2.96706, -1.74533])
             target_high = np.array([3.14159, 1.22173, 1.74533, 1.91986, 2.96706, 0.0523599])
+            if self.actions_in_degress: action * np.pi / 180.0
             target_qpos = np.array(action).clip(target_low, target_high)
         else:
             raise ValueError("Invalid action mode, must be 'ee' or 'joint'")
@@ -234,6 +236,9 @@ class ReachCubeEnv(Env):
             "arm_qpos": self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof].astype(np.float32),
             "arm_qvel": self.data.qvel[self.arm_dof_vel_id:self.arm_dof_vel_id+self.nb_dof].astype(np.float32),
         }
+        if self.actions_in_degress:
+            for k in observation:
+                observation[k] *= 180.0/np.pi
         #observation['agent_pose'] = np.concatenate((observation['arm_qpos'], observation['arm_qvel']))
         if self.observation_mode in ["image", "both"]:
             self.renderer.update_scene(self.data, camera="camera_front")
