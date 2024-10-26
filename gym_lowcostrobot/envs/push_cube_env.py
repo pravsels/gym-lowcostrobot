@@ -75,7 +75,7 @@ class PushCubeEnv(Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 200}
 
-    def __init__(self, observation_mode="image", action_mode="joint", render_mode=None):
+    def __init__(self, observation_mode="image", action_mode="joint", reward_type='dense', actions_in_degrees=False, render_mode=None):
         # Load the MuJoCo model and data
         self.model = mujoco.MjModel.from_xml_path(os.path.join(ASSETS_PATH, "push_cube.xml"), {})
         self.data = mujoco.MjData(self.model)
@@ -92,12 +92,12 @@ class PushCubeEnv(Env):
         observation_subspaces = {
             "arm_qpos": spaces.Box(low=-np.pi, high=np.pi, shape=(6,)),
             "arm_qvel": spaces.Box(low=-10.0, high=10.0, shape=(6,)),
-            "target_pos": spaces.Box(low=-10.0, high=10.0, shape=(3,)),
+            #"target_pos": spaces.Box(low=-10.0, high=10.0, shape=(3,)),
         }
         if self.observation_mode in ["image", "both"]:
-            observation_subspaces["image_front"] = spaces.Box(0, 255, shape=(240, 320, 3), dtype=np.uint8)
-            observation_subspaces["image_top"] = spaces.Box(0, 255, shape=(240, 320, 3), dtype=np.uint8)
-            self.renderer = mujoco.Renderer(self.model)
+            observation_subspaces["image_front"] = spaces.Box(0, 255, shape=(120, 120, 3), dtype=np.uint8)
+            observation_subspaces["image_top"] = spaces.Box(0, 255, shape=(120, 120, 3), dtype=np.uint8)
+            self.renderer = mujoco.Renderer(self.model, width=120, height=120)
         if self.observation_mode in ["state", "both"]:
             observation_subspaces["cube_pos"] = spaces.Box(low=-10.0, high=10.0, shape=(3,))
         self.observation_space = gym.spaces.Dict(observation_subspaces)
@@ -114,10 +114,10 @@ class PushCubeEnv(Env):
 
         # Set additional utils
         self.threshold_height = 0.5
-        self.cube_low = np.array([-0.15, 0.10, 0.015])
-        self.cube_high = np.array([0.15, 0.25, 0.015])
-        self.target_low = np.array([-0.15, 0.10, 0.005])
-        self.target_high = np.array([0.15, 0.25, 0.005])
+        self.cube_low = np.array([-0.1, 0.2, 0.015])
+        self.cube_high = np.array([0.1, 0.23, 0.015])
+        self.target_low = np.array([-0.12, 0.1, 0.005])
+        self.target_high = np.array([0.12, 0.23, 0.005])
 
         # get dof addresses
         self.cube_dof_id = self.model.body("cube").dofadr[0]
@@ -131,6 +131,10 @@ class PushCubeEnv(Env):
 
         self.cube_pos_id = self.model.body("cube").id
         self.ee_id = self.model.body(EE_LINK_NAME).id
+
+        self.reward_type = reward_type
+        self.actions_in_degress = actions_in_degrees
+
 
     def inverse_kinematics(self, ee_target_pos, step=0.2, joint_name="link_6", nb_dof=6, regularization=1e-6):
         """
@@ -201,6 +205,7 @@ class PushCubeEnv(Env):
         elif self.action_mode == "joint":
             target_low = np.array([-3.14159, -1.5708, -1.48353, -1.91986, -2.96706, -1.74533])
             target_high = np.array([3.14159, 1.22173, 1.74533, 1.91986, 2.96706, 0.0523599])
+            if self.actions_in_degress: action = action * np.pi / 180.0
             target_qpos = np.array(action).clip(target_low, target_high)
         else:
             raise ValueError("Invalid action mode, must be 'ee' or 'joint'")
@@ -221,8 +226,12 @@ class PushCubeEnv(Env):
         observation = {
             "arm_qpos": self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof].astype(np.float32),
             "arm_qvel": self.data.qvel[self.arm_dof_vel_id:self.arm_dof_vel_id+self.nb_dof].astype(np.float32),
-            "target_pos": self.target_pos,
+            #"target_pos": self.target_pos,
         }
+        if self.actions_in_degress:
+            for k in observation:
+                observation[k] *= 180.0/np.pi
+
         if self.observation_mode in ["image", "both"]:
             self.renderer.update_scene(self.data, camera="camera_front")
             observation["image_front"] = self.renderer.render()
@@ -261,12 +270,8 @@ class PushCubeEnv(Env):
         # Get the new observation
         observation = self.get_observation()
 
-        # Get the position of the cube and the distance between the end effector and the cube
-        cube_pos = self.data.qpos[self.cube_dof_id:self.cube_dof_id+3]
-        cube_to_target = np.linalg.norm(cube_pos - self.target_pos)
+        reward = self.compute_dense_reward() if self.reward_type == 'dense' else self.compute_sparse_reward()
 
-        # Compute the reward
-        reward = -cube_to_target
         return observation, reward, False, False, {}
 
     def render(self):
@@ -283,3 +288,41 @@ class PushCubeEnv(Env):
             self.renderer.close()
         if self.render_mode == "rgb_array":
             self.rgb_array_renderer.close()
+
+    def compute_dense_reward(self):
+
+        # Get the position of the cube and the distance between the end effector and the cube
+        cube_pos = self.data.xpos[self.cube_pos_id][:2]
+        ee_pos = self.data.xpos[self.ee_id][:2]
+        ee_to_cube = np.linalg.norm(ee_pos - cube_pos)
+
+        exp_dist = np.exp(-ee_to_cube/0.1)
+        
+        reach_reward = exp_dist
+        if exp_dist > 0.6:
+            reach_reward = 1.0
+        elif exp_dist < 0.15:
+            reach_reward = 0.0
+
+        # cube to target
+        cube_to_target = np.linalg.norm(cube_pos - self.target_pos[:2])
+        exp_dist = np.exp(-cube_to_target/0.1)
+        target_reached_reward = exp_dist
+        if exp_dist > 0.6:
+            target_reached_reward = 1.0
+        elif exp_dist < 0.15:
+            target_reached_reward = 0.0
+
+        reward = target_reached_reward + 0.1 * reach_reward
+
+        # Return the reward
+        return reward
+
+    def compute_sparse_reward(self):
+        # Get the position of the cube and the distance between the end effector and the cube
+        cube_pos = self.data.qpos[self.cube_dof_id:self.cube_dof_id+3]
+        cube_to_target = np.linalg.norm(cube_pos - self.target_pos)
+
+        cube_reached_target = 1.0 if cube_to_target < 0.1 else 0.0
+        return cube_reached_target
+

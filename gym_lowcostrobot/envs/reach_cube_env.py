@@ -114,8 +114,8 @@ class ReachCubeEnv(Env):
 
         # Set additional utils
         self.threshold_height = 0.5
-        self.cube_low = np.array([-0.15, 0.22, 0.015])
-        self.cube_high = np.array([0.15, 0.25, 0.015])
+        self.cube_low = np.array([-0.1, 0.2, 0.015])
+        self.cube_high = np.array([0.1, 0.23, 0.015])
 
         # get dof addresses
         self.cube_dof_id = self.model.body("cube").dofadr[0]
@@ -213,10 +213,13 @@ class ReachCubeEnv(Env):
             target_qpos = self.inverse_kinematics(ee_target_pos=ee_target_pos)
             target_qpos[-1:] = gripper_action
         elif self.action_mode == "joint":
+            current_q = self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof].astype(np.float32)
             target_low = np.array([-3.14159, -1.5708, -1.48353, -1.91986, -2.96706, -1.74533])
             target_high = np.array([3.14159, 1.22173, 1.74533, 1.91986, 2.96706, 0.0523599])
-            if self.actions_in_degress: action * np.pi / 180.0
-            target_qpos = np.array(action).clip(target_low, target_high)
+            if self.actions_in_degress: action = action * np.pi / 180.0
+            #target_qpos = np.clip(current_q + action, target_low, target_high) 
+            #print(action)
+            target_qpos = np.clip(action, target_low, target_high)
         else:
             raise ValueError("Invalid action mode, must be 'ee' or 'joint'")
 

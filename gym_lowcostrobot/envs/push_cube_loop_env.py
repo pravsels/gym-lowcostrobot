@@ -74,7 +74,7 @@ class PushCubeLoopEnv(Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 200}
 
-    def __init__(self, observation_mode="image", action_mode="joint", render_mode=None):
+    def __init__(self, observation_mode="image", action_mode="joint", reward_type='dense', actions_in_degrees=False, render_mode=None):
         # Load the MuJoCo model and data
         self.model = mujoco.MjModel.from_xml_path(os.path.join(ASSETS_PATH, "push_cube_loop.xml"), {})
         self.data = mujoco.MjData(self.model)
@@ -143,6 +143,9 @@ class PushCubeLoopEnv(Env):
 
         self.cube_pos_id = self.model.body("cube").id
         self.ee_id = self.model.body(BASE_LINK_NAME).id
+
+        self.reward_type = reward_type
+        self.actions_in_degrees = actions_in_degrees
 
 
     def inverse_kinematics(self, ee_target_pos, step=0.2, regularization=1e-6):
@@ -214,7 +217,9 @@ class PushCubeLoopEnv(Env):
         elif self.action_mode == "joint":
             target_low = np.array([-3.14159, -1.5708, -1.48353, -1.91986, -2.96706, -1.74533])
             target_high = np.array([3.14159, 1.22173, 1.74533, 1.91986, 2.96706, 0.0523599])
+            if self.actions_in_degress: action = action * np.pi / 180.0
             target_qpos = np.array(action).clip(target_low, target_high)
+
         else:
             raise ValueError("Invalid action mode, must be 'ee' or 'joint'")
 
@@ -234,6 +239,10 @@ class PushCubeLoopEnv(Env):
             "arm_qpos": self.data.qpos[self.arm_dof_id:self.arm_dof_id+self.nb_dof].astype(np.float32),
             "arm_qvel": self.data.qvel[self.arm_dof_vel_id:self.arm_dof_vel_id+self.nb_dof].astype(np.float32),
         }
+        if self.actions_in_degress:
+            for k in observation:
+                observation[k] *= 180.0/np.pi
+
         if self.observation_mode in ["image", "both"]:
             self.renderer.update_scene(self.data, camera="camera_front")
             observation["image_front"] = self.renderer.render()

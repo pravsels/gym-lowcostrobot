@@ -128,7 +128,9 @@ class StackTwoCubesEnv(Env):
             
         self.control_decimation = 4 # number of simulation steps per control step
 
-        self.cube_pos_id = self.model.body("cube").id
+        self.red_cube_pos_id = self.model.body("cube_red").id        
+        self.blue_cube_pos_id = self.model.body("cube_blue").id
+
         self.ee_id = self.model.body(EE_LINK_NAME).id
 
     def inverse_kinematics(self, ee_target_pos, step=0.2, joint_name="link_6", nb_dof=6, regularization=1e-6):
